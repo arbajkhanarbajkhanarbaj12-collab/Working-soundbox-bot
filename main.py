@@ -1,17 +1,17 @@
-from flask import Flask, request, jsonify
+import telebot
 import sqlite3
-import datetime
 
-app = Flask(__name__)
+TOKEN = "8686862211:AAEQba68u6edewV-6nWkEzC5tw5b9xsNssI"
+ADMIN_ID = 7397475374
+
+bot = telebot.TeleBot(TOKEN)
 
 def init_db():
     conn = sqlite3.connect("data.db")
     c = conn.cursor()
     c.execute("""
-    CREATE TABLE IF NOT EXISTS licenses(
-        license_key TEXT,
-        device_id TEXT,
-        expiry TEXT
+    CREATE TABLE IF NOT EXISTS buyers(
+        user_id INTEGER
     )
     """)
     conn.commit()
@@ -19,34 +19,28 @@ def init_db():
 
 init_db()
 
-@app.route("/activate", methods=["POST"])
-def activate():
-    data = request.json
-    key = data["license_key"]
-    device = data["device_id"]
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.send_message(message.chat.id,
+    "Welcome!\n\nPress /buy to purchase.")
 
+@bot.message_handler(commands=['buy'])
+def buy(message):
     conn = sqlite3.connect("data.db")
     c = conn.cursor()
-    c.execute("SELECT device_id, expiry FROM licenses WHERE license_key=?", (key,))
-    row = c.fetchone()
 
-    if not row:
-        return jsonify({"status":"invalid key"})
+    c.execute("SELECT * FROM buyers WHERE user_id=?", (message.chat.id,))
+    if c.fetchone():
+        bot.send_message(message.chat.id, "You already bought.")
+        return
 
-    saved_device, expiry = row
+    c.execute("INSERT INTO buyers (user_id) VALUES (?)", (message.chat.id,))
+    conn.commit()
 
-    if expiry != "no":
-        if datetime.datetime.now() > datetime.datetime.fromisoformat(expiry):
-            return jsonify({"status":"expired"})
+    c.execute("SELECT COUNT(*) FROM buyers")
+    total = c.fetchone()[0]
 
-    if saved_device is None:
-        c.execute("UPDATE licenses SET device_id=? WHERE license_key=?", (device, key))
-        conn.commit()
-        return jsonify({"status":"activated"})
+    bot.send_message(message.chat.id, "Purchase recorded ✅")
+    bot.send_message(ADMIN_ID, f"New buyer!\nTotal buyers: {total}")
 
-    if saved_device == device:
-        return jsonify({"status":"welcome back"})
-
-    return jsonify({"status":"already used on another device"})
-
-app.run(host="0.0.0.0", port=3000)
+bot.infinity_polling()
